@@ -20,6 +20,10 @@ jobs:
         with:
             authkey: ${{ secrets.TAILSCALE_CI_AUTHKEY }}
             ping: coder
+    
+      - name: Remove Tailscale DNS
+        run: |
+          sudo tailscale set --accept-dns=false
         
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,7 +42,7 @@ jobs:
       - name: Set up Coder CLI
         uses: coder/setup-action@v1
         with:
-          access_url: "http://coder.tail4ef781.ts.net:7080"
+          access_url: "http://100.96.35.98:7080"
           coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
 
       - name: Validate Terraform template
@@ -57,10 +61,19 @@ jobs:
         run: |
           pwd
           ls -la
-          ls -la "$GITHUB_WORKSPACE"/*.tf
-          coder templates push "$TEMPLATE_NAME" --directory "$GITHUB_WORKSPACE" --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
+          TEMPLATE_SRC_DIR="$RUNNER_TEMP/template-src"
+          rm -rf "$TEMPLATE_SRC_DIR"
+          mkdir -p "$TEMPLATE_SRC_DIR"
+
+          cp "$GITHUB_WORKSPACE/main.tf" "$TEMPLATE_SRC_DIR/"
+          cp "$GITHUB_WORKSPACE/cloud-init.yaml.tftpl" "$TEMPLATE_SRC_DIR/"
+          cp "$GITHUB_WORKSPACE/network_config.cfg" "$TEMPLATE_SRC_DIR/"
+          cp "$GITHUB_WORKSPACE/secrets.auto.tfvars" "$TEMPLATE_SRC_DIR/"
+
+          ls -la "$TEMPLATE_SRC_DIR"
+          coder templates push "$TEMPLATE_NAME" --directory "$TEMPLATE_SRC_DIR" --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --ignore-lockfile --yes
 
       - name: Promote template version
         if: success()
         run: |
-          coder template version promote --template=$TEMPLATE_NAME --template-version=${{ steps.name.outputs.version_name }} --yes
+          coder template version promote --template=$TEMPLATE_NAME --template-version=${{ steps.name.outputs.version_name }}
