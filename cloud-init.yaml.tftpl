@@ -1,0 +1,254 @@
+#cloud-config
+hostname: ${hostname}
+manage_etc_hosts: true
+users:
+  - name: ${username}
+    gecos: Coder User
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: users, admin, sudo, ssl-cert
+    shell: /bin/bash
+    ssh_authorized_keys: []
+
+package_update: true
+package_upgrade: true
+packages:
+  - apt: ${packages_json}
+
+chpasswd:
+  expire: false
+  users:
+    - {name: ${username}, password: p1, type: text}
+
+# Setup the persistent disk partitions safely (vdb)
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+
+fs_setup:
+  - label: userdata
+    filesystem: ext4
+    device: /dev/vdb1
+
+mounts:
+  - [ /dev/vdb1, /data, ext4, "defaults", "0", "2" ]
+
+write_files:
+  - path: /etc/systemd/system/coder.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Coder User Initialization Service
+      After=network.target tailscale-start.service refresh-homelab-certs.service
+      Requires=tailscale-start.service refresh-homelab-certs.service
+
+      [Service]
+      Type=simple
+      User=${username}
+      Group=${username}
+      EnvironmentFile=/etc/environment
+      ExecStart=/bin/bash /home/${username}/coder.sh
+
+      [Install]
+      WantedBy=default.target
+  
+  - path: /etc/systemd/system/tailscale-start.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Tailscale Starter
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      EnvironmentFile=/etc/environment
+      ExecStart=/usr/bin/tailscale up --accept-dns --ssh --auth-key=${tailscale_auth_key}
+
+      [Install]
+      WantedBy=default.target
+  
+  - path: /var/lib/cloud/scripts/per-boot/refresh_certs.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      sleep 2
+      rm -f /usr/local/share/ca-certificates/root.crt /usr/local/share/ca-certificates/intermed.crt
+      curl -o /usr/local/share/ca-certificates/root.crt https://homelab.tail4ef781.ts.net/stepca/roots.pem
+      curl -o /usr/local/share/ca-certificates/intermed.crt https://homelab.tail4ef781.ts.net/stepca/intermediates.pem
+      update-ca-certificates
+      
+      # Safely copy the updated bundle to a dedicated directory for Podman containers.
+      # We use "cat >" to overwrite the contents without altering the file inode,
+      # and we mount the directory to guarantee containers see the changes dynamically.
+      mkdir -p /opt/container-certs
+      cat /etc/ssl/certs/ca-certificates.crt > /opt/container-certs/ca-bundle.crt
+      chmod 755 /opt/container-certs
+      chmod 644 /opt/container-certs/ca-bundle.crt
+  
+  - path: /etc/systemd/system/refresh-homelab-certs.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh Self-Signed Certificate Service
+      After=network.target tailscale-start.service
+      Requires=tailscale-start.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      EnvironmentFile=/etc/environment
+      # Ensure Tailscale is actually running and has been approved via Tailnet lock before executing the script
+      ExecStartPre=/bin/bash -c 'until tailscale status --json 2>/dev/null | jq -e ".Self.TailnetLockError == null" >/dev/null 2>&1; do echo "Waiting for Tailscale Tailnet Lock..."; sleep 2; done'
+      ExecStart=/bin/bash /var/lib/cloud/scripts/per-boot/refresh_certs.sh
+
+      [Install]
+      WantedBy=default.target
+
+%{ if enable_devcontainer == "true" }
+  - path: /etc/containers/nodocker
+    owner: root:root
+    permissions: '0644'
+    content: |
+      echo
+
+  - path: /etc/systemd/user/podman-docker-sock.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Symlink rootless podman socket to /var/run/docker.sock
+      After=podman.socket
+      Requires=podman.socket
+
+      [Service]
+      Type=oneshot
+      # We use sudo because /var/run is owned by root, but the user has passwordless sudo
+      ExecStart=/usr/bin/sudo /bin/ln -sf %t/podman/podman.sock /var/run/docker.sock
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=default.target
+%{ endif }
+    
+bootcmd:
+    - |
+      if ! grep -q "^CODER_AGENT_TOKEN=" /etc/environment; then
+        echo "CODER_AGENT_TOKEN=${coder_agent_token}" >> /etc/environment
+      else
+        sed -i "s|^CODER_AGENT_TOKEN=.*|CODER_AGENT_TOKEN=${coder_agent_token}|" /etc/environment
+      fi
+
+runcmd:
+  - 'set -e'
+  - 'mkdir -p /home/${username}/.ssh'
+  - 'touch /home/${username}/.ssh/known_hosts'
+  - 'ssh-keyscan github.com >> /home/${username}/.ssh/known_hosts'
+  - 'chown -R 1001:1001 /home/${username}/.ssh'
+  - 'mkdir -p /home/${username}/.config/containers'
+  - 'chown -R 1001:1001 /home/${username}/.config'
+  
+  # --- LOCALE FIX ---
+  # Generate and set en_US.UTF-8 locale to prevent perl/bash warnings
+  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y locales'
+  - 'sed -i -e "s/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen'
+  - 'locale-gen en_US.UTF-8'
+  - 'update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8'
+  # ------------------
+
+  # --- NODE.JS & NPM SYSTEM-WIDE INSTALL FOR COPILOT ---
+  - 'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -'
+  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs'
+  # -----------------------------------------------------
+
+%{ if enable_devcontainer == "true" }
+  # --- ROOTLESS PODMAN FOR DEVCONTAINERS ---
+  
+  # Pre-create the certs directory and an initial file immediately to fix a race condition.
+  # This prevents Podman from auto-creating missing paths as directories if a container starts early.
+  - 'mkdir -p /opt/container-certs'
+  - 'cat /etc/ssl/certs/ca-certificates.crt > /opt/container-certs/ca-bundle.crt || touch /opt/container-certs/ca-bundle.crt'
+  - 'chmod 755 /opt/container-certs && chmod 644 /opt/container-certs/ca-bundle.crt'
+
+  # Added podman-compose because Devcontainers frequently use compose files
+  - 'DEBIAN_FRONTEND=noninteractive apt-get install -y podman podman-docker podman-compose uidmap slirp4netns dbus-user-session'
+  - 'npm install -g @devcontainers/cli'
+  # Force link the CLI so the Coder agent (running as a system service) can always find it
+  - 'ln -sf $(which devcontainer) /usr/local/bin/devcontainer || true'
+  - 'ln -sf $(which podman-compose) /usr/local/bin/docker-compose || true'
+
+  # Set environment variables and volume mounts using single-liners
+  - 'printf "[engine]\ncompose_warning_logs = false\n\n[containers]\nuserns = \"keep-id\"\nvolumes = [\n  \"/opt/container-certs/ca-bundle.crt:/etc/ssl/certs/ca-certificates.crt:ro\",\n  \"/opt/container-certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro\",\n  \"/opt/container-certs/ca-bundle.crt:/etc/ssl/cert.pem:ro\"\n]\nenv = [\n  \"NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt\",\n  \"SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt\",\n  \"REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\",\n  \"CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt\"\n]\n\n[build]\nenv = [\n  \"NODE_EXTRA_CA_CERTS=/opt/container-certs/ca-bundle.crt\",\n  \"SSL_CERT_FILE=/opt/container-certs/ca-bundle.crt\",\n  \"REQUESTS_CA_BUNDLE=/opt/container-certs/ca-bundle.crt\",\n  \"CURL_CA_BUNDLE=/opt/container-certs/ca-bundle.crt\"\n]\n" > /home/${username}/.config/containers/containers.conf'
+  - 'echo "/opt/container-certs:/opt/container-certs" > /home/${username}/.config/containers/mounts.conf'
+
+  # Ensure the user has full ownership of the config directory generated by single-liners
+  - 'chown -R ${username}:${username} /home/${username}/.config'
+  
+  # Ensure the user has full ownership of the config directory generated by write_files
+  - 'chown -R ${username}:${username} /home/${username}/.config'
+
+  # Ensure sub-uids and sub-gids are assigned for rootless namespaces
+  - 'usermod --add-subuids 100000-165535 --add-subgids 100000-165535 ${username} || true'
+  # Enable lingering for the user so systemd user services run at boot
+  - 'loginctl enable-linger ${username}'
+  # Enable and start the podman socket as the user
+  - 'su - ${username} -c "systemctl --user enable --now podman.socket"'
+  # Enable the custom service to symlink the socket
+  - 'su - ${username} -c "systemctl --user enable --now podman-docker-sock.service"'
+  # -----------------------------------------
+%{ endif }
+
+  # --- PERSISTENT DISK MOUNT LOGIC ---
+  # Setup persistent data directories to survive template updates
+  - 'mkdir -p /data/home /data/root'
+  - 'if [ ! -d "/data/home/${username}" ]; then cp -a /home/. /data/home/; fi'
+  - 'if [ ! -d "/data/root/.ssh" ]; then cp -a /root/. /data/root/; fi'
+  - 'grep -q "/data/home" /etc/fstab || echo "/data/home /home none bind 0 0" >> /etc/fstab'
+  - 'grep -q "/data/root" /etc/fstab || echo "/data/root /root none bind 0 0" >> /etc/fstab'
+  - 'mount -a'
+  - 'chown -R ${username}:${username} /home/${username}'
+  # ------------------------------------
+
+%{ if enable_git_clone == "false" }
+  - 'mkdir -p /home/${username}/${manual_folder_name} && chown ${username}:${username} /home/${username}/${manual_folder_name}'
+%{ else }
+  # Git cloning handled by module
+%{ endif }
+  
+  - 'curl -fsSL https://tailscale.com/install.sh | sh'
+  - |
+    sed -i 's/^PORT=.*/PORT="${ts_port}"/' /etc/default/tailscaled
+    # Store Tailscale state in persistent /root directory
+    mkdir -p /root/.tailscale
+    sed -i 's|^FLAGS=.*|FLAGS="--statedir=/root/.tailscale"|' /etc/default/tailscaled
+    systemctl restart tailscaled
+  - '/usr/bin/tailscale up --auth-key=${tailscale_auth_key} --accept-dns --ssh || true'
+  - 'systemctl enable --now tailscale-start.service'
+  - 'systemctl enable --now refresh-homelab-certs.service'
+  
+%{ if install_de == "true" }
+  - |
+    wget -P /root https://github.com/kasmtech/KasmVNC/releases/download/v1.3.2/kasmvncserver_bookworm_1.3.2_amd64.deb
+    apt-get install -y /root/kasmvncserver_bookworm_1.3.2_amd64.deb
+    wget -O /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+    apt-get install -y /tmp/google-chrome-stable_current_amd64.deb
+    
+    # Use grep to ensure we don't duplicate on rebuilds if the file persists
+    grep -q "XDG_CURRENT_DESKTOP=xfce" /home/${username}/.xsessionrc || echo "export XDG_CURRENT_DESKTOP=xfce" >> /home/${username}/.xsessionrc
+    grep -q "XDG_SESSION_TYPE=x11" /home/${username}/.xsessionrc || echo "export XDG_SESSION_TYPE=x11" >> /home/${username}/.xsessionrc
+    chown ${username}:${username} /home/${username}/.xsessionrc
+%{ endif }
+  
+  - 'echo "CODER_AGENT_TOKEN=${coder_agent_token}" > /etc/environment'
+  - 'echo "${coder_agent_init_script_b64}" | base64 --decode > /home/${username}/coder.sh'
+  - 'chown ${username} /home/${username}/coder.sh'
+  - 'chmod +x /home/${username}/coder.sh'
+  - 'loginctl enable-linger root'
+  - 'systemctl daemon-reload'
+  - 'systemctl enable --now coder.service'
+  - 'curl https://mise.jdx.dev/install.sh | MISE_INSTALL_PATH=/usr/local/bin/mise sh'
+  - 'su - ${username} -c "export HOME=/home/${username}; export USER=${username}; grep -q \"mise activate\" ~/.bashrc || echo \"eval \\\"\\$(/usr/local/bin/mise activate bash)\\\"\" >> ~/.bashrc; for tool in ${tooling_list}; do /usr/local/bin/mise use --global $tool@latest; done"'
