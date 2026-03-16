@@ -20,6 +20,10 @@ jobs:
         with:
             authkey: ${{ secrets.TAILSCALE_CI_AUTHKEY }}
             ping: coder
+
+      - name: Remove Tailscale DNS
+        run: |
+            tailscale set --accept-dns=false
         
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,7 +59,9 @@ jobs:
 
       - name: Push template to Coder
         run: |
-          coder templates push $TEMPLATE_NAME . --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
+          pwd
+          ls -la
+          coder templates push $TEMPLATE_NAME --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
       - name: Create a test workspace and run some example commands
         run: |
