@@ -9,6 +9,9 @@ on:
 jobs:
   test-and-publish:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     env:
       TEMPLATE_NAME: "debian-vm"
     steps:
@@ -52,7 +55,7 @@ jobs:
 
       - name: Push template to Coder
         run: |
-          coder templates push $TEMPLATE_NAME --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
+          coder templates push $TEMPLATE_NAME . --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
       - name: Create a test workspace and run some example commands
         run: |
