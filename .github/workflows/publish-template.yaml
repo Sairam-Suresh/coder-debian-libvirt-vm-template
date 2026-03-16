@@ -39,7 +39,7 @@ jobs:
           coder_session_token: ${{ secrets.CODER_SESSION_TOKEN }}
 
       - name: Validate Terraform template
-        run: terraform validate
+        run: terraform init && terraform validate
 
       - name: Get short commit SHA to use as template version name
         id: name
@@ -48,8 +48,7 @@ jobs:
       - name: Get latest commit title to use as template version description
         id: message
         run:
-          echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >>
-          $GITHUB_OUTPUT
+          echo "pr_title=$(git log --format=%s -n 1 ${{ github.sha }})" >> $GITHUB_OUTPUT
 
       - name: Push template to Coder
         run: |
