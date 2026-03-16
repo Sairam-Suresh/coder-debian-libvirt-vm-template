@@ -20,10 +20,6 @@ jobs:
         with:
             authkey: ${{ secrets.TAILSCALE_CI_AUTHKEY }}
             ping: coder
-
-      - name: Remove Tailscale DNS
-        run: |
-            sudo tailscale set --accept-dns=false
         
       - name: Checkout repository
         uses: actions/checkout@v4
