@@ -58,7 +58,7 @@ jobs:
           pwd
           ls -la
           ls -la "$GITHUB_WORKSPACE"/*.tf
-          coder templates push "$TEMPLATE_NAME" "$GITHUB_WORKSPACE" --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
+          coder templates push "$TEMPLATE_NAME" --directory "$GITHUB_WORKSPACE" --activate=false --name ${{ steps.name.outputs.version_name }} --message "${{ steps.message.outputs.pr_title }}" --yes
 
       - name: Promote template version
         if: success()
