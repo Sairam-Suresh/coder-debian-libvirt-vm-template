@@ -23,7 +23,7 @@ jobs:
 
       - name: Remove Tailscale DNS
         run: |
-            tailscale set --accept-dns=false
+            sudo tailscale set --accept-dns=false
         
       - name: Checkout repository
         uses: actions/checkout@v4
