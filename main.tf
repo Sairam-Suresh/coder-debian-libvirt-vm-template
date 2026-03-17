@@ -356,17 +356,17 @@ resource "libvirt_domain" "main" {
         model = { type = "virtio" }
         backend = { type = "passt" }
 
-        port_forward = [
-          {
-            proto = "udp"
-            ranges = [
-              {
-                start = local.ts_port - 1
-                to    = local.ts_port + 1
-              }
-            ]
-          }
-        ]
+        # port_forward = [
+        #   {
+        #     proto = "udp"
+        #     ranges = [
+        #       {
+        #         start = local.ts_port - 1
+        #         to    = local.ts_port + 1
+        #       }
+        #     ]
+        #   }
+        # ]
       },
       {
         model = { type = "virtio" }
