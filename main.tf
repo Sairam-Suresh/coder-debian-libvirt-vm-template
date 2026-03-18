@@ -175,7 +175,7 @@ resource "libvirt_cloudinit_disk" "init" {
 
   lifecycle {
     replace_triggered_by = [
-      coder_agent.main.id,
+      coder_agent.main[count.index].id,
     ]
   }
 
@@ -187,13 +187,13 @@ resource "libvirt_cloudinit_disk" "init" {
                                     ["qemu-guest-agent", "git", "jq", "libdatetime-perl", "openssl", "ssl-cert"],
                                     data.coder_parameter.install_de.value == "true" ? ["xfce4", "xfce4-goodies", "dbus-x11"] : []
                                   ))
-    coder_agent_token           = coder_agent.main.token
+    coder_agent_token           = coder_agent.main[count.index].token
     enable_git_clone            = data.coder_parameter.enable_git_clone.value
     manual_folder_name          = data.coder_parameter.enable_git_clone.value == "false" ? data.coder_parameter.manual_folder_name[0].value : ""
     ts_port                     = local.ts_port
     install_de                  = data.coder_parameter.install_de.value
     enable_devcontainer         = data.coder_parameter.enable_devcontainer.value
-    coder_agent_init_script_b64 = base64encode(coder_agent.main.init_script)
+    coder_agent_init_script_b64 = base64encode(coder_agent.main[count.index].init_script)
     tooling_list                = join(" ", jsondecode(data.coder_parameter.tooling.value))
   })
   
@@ -214,7 +214,7 @@ resource "libvirt_volume" "cloudinitiso" {
   lifecycle {
     replace_triggered_by = [
       libvirt_cloudinit_disk.init[count.index].id,
-      coder_agent.main.id,
+      coder_agent.main[count.index].id,
       terraform_data.os_disk_trigger.id # <-- Add this line
     ]
   }
@@ -264,7 +264,7 @@ resource "libvirt_volume" "os_disk" {
 
   lifecycle {
     replace_triggered_by = [
-      coder_agent.main.id,
+      coder_agent.main[count.index].id,
       terraform_data.os_disk_trigger.id # Triggers destruction & recreation
     ]
   }
@@ -288,7 +288,7 @@ resource "libvirt_domain" "main" {
   
   # Injecting the coder_agent ID directly here forces the Coder UI 
   # to correctly assign and display the agent against this Libvirt VM resource.
-  description = "Workspace VM for ${local.username}. (Agent ID: ${coder_agent.main.id})"
+  description = "Workspace VM for ${local.username}. (Agent ID: ${coder_agent.main[count.index].id})"
 
   memory      = data.coder_parameter.vm_memory.value
   memory_unit = "GiB"
@@ -424,7 +424,6 @@ resource "coder_agent" "main" {
     GIT_AUTHOR_EMAIL    = "${data.coder_workspace_owner.me.email}"
     GIT_COMMITTER_NAME  = coalesce(data.coder_workspace_owner.me.full_name, data.coder_workspace_owner.me.name)
     GIT_COMMITTER_EMAIL = "${data.coder_workspace_owner.me.email}"
-    # Updated to the correct user socket path for Podman
     DOCKER_HOST         = "unix:///run/user/1001/podman/podman.sock"
   }
 
@@ -491,7 +490,7 @@ module "code-server" {
   }
 
   subdomain = true
-  agent_id  = coder_agent.main.id
+  agent_id  = coder_agent.main[count.index].id
   order     = 1
 }
 
@@ -499,7 +498,7 @@ module "antigravity" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/antigravity/coder"
   version  = "~> 1.0"
-  agent_id = coder_agent.main.id
+  agent_id = coder_agent.main[count.index].id
   folder = local.workdir
 
   mcp = jsonencode({
@@ -519,7 +518,7 @@ module "copilot" {
   source   = "registry.coder.com/coder-labs/copilot/coder"
   version  = "0.3.0"
   count  = data.coder_workspace.me.start_count
-  agent_id = coder_agent.main.id
+  agent_id = coder_agent.main[count.index].id
   workdir  = local.workdir
 
   ai_prompt = data.coder_task.me.prompt
@@ -551,7 +550,7 @@ module "git-commit-signing" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/git-commit-signing/coder"
   version  = "1.0.31"
-  agent_id = coder_agent.main.id
+  agent_id = coder_agent.main[count.index].id
 }
 
 module "jetbrains_gateway" {
@@ -563,7 +562,7 @@ module "jetbrains_gateway" {
   folder         = "/home/coder"
   version        = "~> 1.0"
 
-  agent_id   = coder_agent.main.id
+  agent_id   = coder_agent.main[count.index].id
   agent_name = "main"
 }
 
@@ -571,7 +570,7 @@ module "git-clone" {
   count    = (data.coder_workspace.me.start_count > 0 && data.coder_parameter.enable_git_clone.value == "true") ? 1 : 0
   source   = "registry.coder.com/coder/git-clone/coder"
   version  = "~> 1.0"
-  agent_id = coder_agent.main.id
+  agent_id = coder_agent.main[count.index].id
   url      = data.coder_parameter.repo_url[0].value
   base_dir = "/home/${local.username}" 
 }
@@ -580,13 +579,13 @@ module "kasmvnc" {
   count               = (data.coder_workspace.me.start_count > 0 && data.coder_parameter.install_de.value == "true") ? 1 : 0
   source              = "registry.coder.com/coder/kasmvnc/coder"
   version             = "1.2.3"
-  agent_id            = coder_agent.main.id
+  agent_id            = coder_agent.main[count.index].id
   desktop_environment = "xfce"
   subdomain           = true
 }
 
 # resource "coder_devcontainer" "devcontainer" {
 #   count            = (data.coder_workspace.me.start_count > 0 && data.coder_parameter.enable_devcontainer.value == "true") ? 1 : 0
-#   agent_id         = coder_agent.main.id
+#   agent_id         = coder_agent.main[count.index].id
 #   workspace_folder = local.workdir
 # }
