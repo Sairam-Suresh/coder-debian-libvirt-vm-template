@@ -405,6 +405,7 @@ resource "libvirt_domain" "main" {
 
 resource "coder_agent" "main" {
   arch            = data.coder_provisioner.me.arch
+  count           = data.coder_workspace.me.start_count
   os              = "linux"
   dir             = local.workdir
   startup_script  = <<-EOT
@@ -414,9 +415,6 @@ resource "coder_agent" "main" {
       cp -rT /etc/skel ~
       touch ~/.init_done
     fi
-
-    mkdir -p ~/.ssh
-    ssh-keyscan github.com >> ~/.ssh/known_hosts
   EOT
 
   connection_timeout = 120
@@ -454,31 +452,21 @@ resource "coder_agent" "main" {
     timeout      = 1
   }
 
-  # metadata {
-  #   display_name = "Swap Usage (Host)"
-  #   key          = "7_swap_host"
-  #   script       = <<EOT
-  #     free -b | awk '/^Swap/ { printf("%.1f/%.1f", $3/1024.0/1024.0/1024.0, $2/1024.0/1024.0/1024.0) }'
-  #   EOT
-  #   interval     = 10
-  #   timeout      = 1
-  # }
-
   metadata {
-    display_name = "Tailscale Ping to Coder"
+    display_name = "Tailscale Ping to Homelab"
     key          = "8_ts_ping"
     script       = <<EOT
-    tailscale ping -c 1 coder 2>/dev/null | grep "pong" | awk '{print $NF}'
+    tailscale ping -c 1 homelab 2>/dev/null | grep "pong" | awk '{print $NF}'
     EOT
     interval     = 25
     timeout      = 1
   }
 
   metadata {
-    display_name = "Connection to Coder"
+    display_name = "Connection to Homelab"
     key          = "9_ts_conn_type"
     script       = <<EOT
-    tailscale ping -c 1 coder 2>/dev/null | grep "pong" | awk '{print $6}'
+    tailscale ping -c 1 homelab 2>/dev/null | grep "pong" | awk '{print $6}'
     EOT
     interval     = 25
     timeout      = 1
