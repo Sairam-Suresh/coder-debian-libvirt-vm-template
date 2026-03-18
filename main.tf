@@ -214,8 +214,7 @@ resource "libvirt_volume" "cloudinitiso" {
   lifecycle {
     replace_triggered_by = [
       libvirt_cloudinit_disk.init[count.index].id,
-      coder_agent.main[count.index].id,
-      terraform_data.os_disk_trigger.id # <-- Add this line
+      terraform_data.os_disk_trigger.id
     ]
   }
 
@@ -264,7 +263,6 @@ resource "libvirt_volume" "os_disk" {
 
   lifecycle {
     replace_triggered_by = [
-      coder_agent.main[count.index].id,
       terraform_data.os_disk_trigger.id # Triggers destruction & recreation
     ]
   }
