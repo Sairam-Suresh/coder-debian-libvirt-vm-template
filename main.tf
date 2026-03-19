@@ -366,12 +366,6 @@ resource "libvirt_domain" "main" {
         #   }
         # ]
       },
-      {
-        model = { type = "virtio" }
-        source = {
-          bridge = { bridge = "virbr0"}
-        }
-      }
     ]
 
     consoles = [
