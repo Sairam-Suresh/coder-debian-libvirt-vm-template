@@ -5,7 +5,7 @@ terraform {
     }
     libvirt = {
       source  = "dmacvicar/libvirt"
-      version = "~> 0.9.1"
+      version = "~> 0.9.5"
     }
   }
 }
@@ -295,12 +295,17 @@ resource "libvirt_domain" "main" {
 
   cpu = {
     mode = "host-passthrough"
-  }
+  }  
 
   lifecycle {
     replace_triggered_by = [
       terraform_data.os_disk_trigger.id
     ]
+  }
+
+  destroy = {
+    graceful = true
+    timeout  = 120
   }
 
   os = {
@@ -353,18 +358,6 @@ resource "libvirt_domain" "main" {
         type  = "user"
         model = { type = "virtio" }
         backend = { type = "passt" }
-
-        # port_forward = [
-        #   {
-        #     proto = "udp"
-        #     ranges = [
-        #       {
-        #         start = local.ts_port - 1
-        #         to    = local.ts_port + 1
-        #       }
-        #     ]
-        #   }
-        # ]
       },
     ]
 

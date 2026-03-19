@@ -2,8 +2,8 @@
 display_name: Debian Libvirt VMs
 description: Provision persistent Debian VM workspaces on libvirt with Coder, Tailscale, and optional desktop/devcontainer support.
 icon: ../../../site/static/icon/debian.svg
-maintainer_github: coder
-verified: true
+maintainer_github: sairam-suresh
+verified: false
 tags: [vm, debian, libvirt, coder, tailscale]
 ---
 
